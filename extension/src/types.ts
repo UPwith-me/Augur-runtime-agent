@@ -2,9 +2,10 @@
 
 // This `AiResponse` is a union of types needed by the VS Code extension and the web UI.
 export interface AiResponse {
-    tool: 'next' | 'stepIn' | 'stepOut' | 'continue' | 'stepOver' | 'stepInto' | 'inspectVariable';
+    tool: 'next' | 'stepIn' | 'stepOut' | 'continue' | 'stepOver' | 'stepInto' | 'inspectVariable' | 'proposeFix';
     explanation: string;
     variableName?: string; // Only used by the web UI's 'inspectVariable' tool
+    fixSuggestion?: string; 
 }
 
 export type AiModel = 'gemini-2.5-flash' | 'mock';

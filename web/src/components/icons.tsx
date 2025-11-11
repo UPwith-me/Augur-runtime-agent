@@ -109,3 +109,12 @@ export const ChevronDownIcon: React.FC<IconProps> = (props) => (
         <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
     </svg>
 );
+
+// --- 变更 (STAGE 1) ---
+// 添加 “扳手/螺丝刀” 图标，用于“提议修复”
+export const WrenchScrewdriverIcon: React.FC<IconProps> = (props) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.83-5.83M11.42 15.17l.04 1.52m0 0l2.04-2.04m-2.04 2.04L6.12 11.42m5.3 3.75l2.04-2.04M6.12 11.42L3 14.55l-2.04-2.04L6.12 8.3m5.3 3.12L9.36 9.36l2.04-2.04L16.5 11.4m-5.3-3.12L11.42 6.12m0 0L8.3 3l-2.04 2.04L11.42 6.12z" />
+    </svg>
+);
+// --- 变更结束 ---

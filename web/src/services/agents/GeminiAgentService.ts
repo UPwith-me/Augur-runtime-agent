@@ -78,7 +78,6 @@ ${code}
                                         line: { type: Type.INTEGER, description: "The line number where the debugger is paused." },
                                         pauseReason: { type: Type.STRING, enum: ['breakpoint', 'step'], description: "Reason for pausing." },
                                         
-                                        // --- 最终修复 ---
                                         variables: {
                                             type: Type.OBJECT,
                                             description: "A key-value map of local variables in scope.",
@@ -92,7 +91,6 @@ ${code}
                                                 type: [Type.STRING, Type.NUMBER, Type.BOOLEAN, Type.ARRAY, Type.OBJECT, Type.NULL]
                                             }
                                         },
-                                        // --- 修复结束 ---
 
                                         callStack: { type: Type.ARRAY, items: { type: Type.STRING }, description: "The current call stack." }
                                     },
@@ -152,16 +150,23 @@ ${code}
                 contents: context,
                 config: {
                     responseMimeType: "application/json",
+                    // 更新 Schema 以允许 AI 提议修复
                     responseSchema: {
                         type: Type.OBJECT,
                         properties: {
                             tool: {
                                 type: Type.STRING,
-                                description: "The debugging action to take. Must be one of: 'stepOver', 'stepInto', 'continue', 'inspectVariable'."
+                                // 添加 'proposeFix' 到枚举
+                                description: "The debugging action to take. Must be one of: 'stepOver', 'stepInto', 'continue', 'inspectVariable', 'proposeFix'."
                             },
                             variableName: {
                                 type: Type.STRING,
                                 description: "The name of the variable to inspect. ONLY provide if the tool is 'inspectVariable'."
+                            },
+                            // 添加新属性
+                            fixSuggestion: {
+                                type: Type.STRING,
+                                description: "The suggested line of code to fix the bug. ONLY provide if the tool is 'proposeFix'."
                             },
                             explanation: {
                                 type: Type.STRING,
@@ -181,6 +186,9 @@ ${code}
             }
             if (parsedResponse.tool === 'inspectVariable' && !parsedResponse.variableName) {
                 throw new Error("AI response for 'inspectVariable' is missing 'variableName'.");
+            }
+            if (parsedResponse.tool === 'proposeFix' && !parsedResponse.fixSuggestion) {
+                throw new Error("AI response for 'proposeFix' is missing 'fixSuggestion'.");
             }
 
             return parsedResponse as AiResponse;

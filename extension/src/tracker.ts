@@ -105,9 +105,11 @@ class AugurDebugAdapterTracker implements vscode.DebugAdapterTracker {
 
             const sourceCode = await this.getSourceCode(topFrame.source, topFrame.line);
 
-            // Format into a prompt
+            // --- CHANGE (STAGE 1) ---
+            // Update system prompt to inform AI it can propose a fix
             const prompt = `You are an expert debugging assistant. Your goal is to decide the next best debugging action.
-Based on the current state, choose a tool: 'next' (step over), 'stepIn', 'stepOut', or 'continue'.
+Based on the current state, choose a tool: 'next' (step over), 'stepIn', 'stepOut', 'continue', or 'proposeFix'.
+If you choose 'proposeFix', you MUST provide the single, complete line of corrected code in 'fixSuggestion'.
 Provide a brief, one-sentence explanation for your choice.
 
 Current state:
@@ -122,6 +124,7 @@ ${sourceCode}
 Local Variables:
 ${JSON.stringify(variables, null, 2)}
 `;
+            // --- END CHANGE ---
             return prompt;
         } catch (error) {
             console.error('[Augur] Failed to build golden context:', error);
@@ -162,12 +165,20 @@ ${JSON.stringify(variables, null, 2)}
                 contents: context,
                 config: {
                     responseMimeType: "application/json",
+                    // --- CHANGE (STAGE 1) ---
+                    // Update Schema to allow AI to propose a fix
                     responseSchema: {
                         type: Type.OBJECT,
                         properties: {
                             tool: {
                                 type: Type.STRING,
-                                description: "The debugging action. Must be 'next', 'stepIn', 'stepOut', or 'continue'."
+                                // Add 'proposeFix' to the enum
+                                description: "The debugging action. Must be 'next', 'stepIn', 'stepOut', 'continue', or 'proposeFix'."
+                            },
+                            // Add new property
+                            fixSuggestion: {
+                                type: Type.STRING,
+                                description: "The suggested line of code to fix the bug. ONLY provide if 'proposeFix' is the tool."
                             },
                             explanation: {
                                 type: Type.STRING,
@@ -176,19 +187,30 @@ ${JSON.stringify(variables, null, 2)}
                         },
                         required: ["tool", "explanation"]
                     },
+                    // --- END CHANGE ---
                 },
             });
 
-            // --- 修复开始 ---
-            // 使用可选链 (?.）并添加一个 if 检查，以防止在 response.text 未定义时崩溃
+            // --- FIX ---
+            // Use optional chaining (?.）and add an if-check to prevent crash if response.text is undefined
             const jsonString = response.text?.trim();
             if (!jsonString) {
                 console.error('[Augur] Gemini API returned an empty or undefined response.');
                 throw new Error('Failed to get decision from Gemini API: Empty response.');
             }
-            // --- 修复结束 ---
+            // --- END FIX ---
 
-            return JSON.parse(jsonString) as AiResponse;
+            const parsedResponse = JSON.parse(jsonString) as AiResponse;
+
+            // --- CHANGE (STAGE 1) ---
+            // Add new validation
+            if (parsedResponse.tool === 'proposeFix' && !parsedResponse.fixSuggestion) {
+                console.error('[Augur] AI chose "proposeFix" but did not provide "fixSuggestion".');
+                throw new Error("AI response for 'proposeFix' is missing 'fixSuggestion'.");
+            }
+            // --- END CHANGE ---
+
+            return parsedResponse;
 
         } catch (error) {
             console.error('[Augur] Gemini API call failed:', error);
@@ -202,14 +224,80 @@ ${JSON.stringify(variables, null, 2)}
     private async executeAIAction(threadId: number, action: AiResponse) {
         // Translate tool names to DAP commands
         const command = action.tool;
+        // Navigation commands
         const validCommands = ['next', 'stepIn', 'stepOut', 'continue'];
 
         if (validCommands.includes(command)) {
             console.log(`[Augur] Executing command: ${command}`);
             await this.session.customRequest(command, { threadId });
+        
+        // --- CHANGE (STAGE 1) ---
+        // Add new logic to handle 'proposeFix'
+        } else if (action.tool === 'proposeFix' && action.fixSuggestion) {
+            console.log(`[Augur] AI proposing fix: ${action.fixSuggestion}`);
+            // Call new helper function
+            await this.applyCodeFix(action.fixSuggestion, threadId);
+            
+            // After fixing code, we should stop auto-debugging to let the user review.
+            // Or we could auto-continue. For now, just apply the fix and stop.
+            vscode.window.showInformationMessage("Augur AI has applied the code fix. Please review the change and continue debugging manually.");
+            
+            // (Optional) To resume automatically after fix, uncomment the line below:
+            // console.log('[Augur] Resuming execution after fix...');
+            // await this.session.customRequest('continue', { threadId });
+        // --- END CHANGE ---
+            
         } else {
             console.warn(`[Augur] AI returned an invalid tool: ${command}. Defaulting to 'next'.`);
             await this.session.customRequest('next', { threadId });
+        }
+    }
+
+
+    private async applyCodeFix(fixText: string, threadId: number) {
+        const editor = vscode.window.activeTextEditor;
+        
+        // We need the line number. Get it from the stack trace.
+        let stackTrace;
+        try {
+            stackTrace = await this.session.customRequest('stackTrace', { threadId, startFrame: 0, levels: 1 });
+        } catch (e: any) {
+             vscode.window.showErrorMessage(`Augur AI could not apply fix: Failed to get stack trace. ${e.message}`);
+             return;
+        }
+        
+        const currentLine = stackTrace?.stackFrames?.[0]?.line;
+        
+        // VS Code lines are 0-based, DAP lines are 1-based.
+        if (editor && currentLine && currentLine > 0) {
+            const lineIndex = currentLine - 1; // Convert to 0-based index
+            const lineText = editor.document.lineAt(lineIndex);
+            const edit = new vscode.WorkspaceEdit();
+            
+            // Try to preserve original indentation
+            const originalIndentation = lineText.text.match(/^\s*/)?.[0] || '';
+            
+            // Create a TextEdit to replace the entire current line
+            const range = new vscode.Range(
+                new vscode.Position(lineIndex, 0), // start of line
+                new vscode.Position(lineIndex, lineText.range.end.character) // end of line
+            );
+            
+            edit.replace(editor.document.uri, range, originalIndentation + fixText.trim());
+            
+            // Apply the edit
+            const success = await vscode.workspace.applyEdit(edit);
+            
+            if (success) {
+                // (Optional) Auto-save
+                // await editor.document.save();
+                vscode.window.showInformationMessage(`Augur AI has applied the fix to line ${currentLine}.`);
+            } else {
+                 vscode.window.showErrorMessage("Augur AI failed to apply the fix.");
+            }
+
+        } else {
+            vscode.window.showErrorMessage("Augur AI cannot apply fix: No active editor or valid stack frame found.");
         }
     }
 }

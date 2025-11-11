@@ -55,6 +55,17 @@ export class MockAgentService implements IAgentService {
         // Simulate network delay
         await new Promise(resolve => setTimeout(resolve, 500));
         
+        // --- 变更 (STAGE 1) ---
+        // 添加一个新规则来模拟“提议修复”
+        if (context.includes('result = fibonacci(5)') && context.includes('line: 11')) {
+             return { 
+                 tool: 'proposeFix',
+                 fixSuggestion: 'result = fibonacci(6) # Let\'s try a different value',
+                 explanation: 'I see we are calculating fibonacci(5). What if we tried 6 instead?' 
+             };
+        }
+        // --- 变更结束 ---
+        
         // Simple deterministic logic for the mock agent
         if (context.includes('fibonacci')) {
              if (context.includes('"b": 5')) {

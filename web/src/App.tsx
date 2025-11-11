@@ -1,7 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import type { SimulationState, SimulationStep, PromptConfig } from '@/types';
 import { INITIAL_PYTHON_CODE } from '@/constants';
-import { generateSimulation } from '@/lib/simulationGenerator';
 // FIX: Replaced the VS Code tracker import with the web-compatible service factory
 import { getAgentService } from '@/services/aiServiceFactory';
 
@@ -58,10 +57,14 @@ const App: React.FC = () => {
     const [simulationSteps, setSimulationSteps] = useState<SimulationStep[]>([]);
     const [state, setState] = useState<SimulationState>(initialState);
     const [promptConfig, setPromptConfig] = useState<PromptConfig>({
+        // --- 变更 (STAGE 1) ---
+        // 更新系统提示，告知 AI 它可以提议修复
         systemPrompt: `You are an expert debugging assistant. Your goal is to decide the next best debugging action to take.
-Based on the current state of the debugger, choose one of the following tools: 'stepOver', 'stepInto', 'continue', or 'inspectVariable'.
+Based on the current state of the debugger, choose one of the following tools: 'stepOver', 'stepInto', 'continue', 'inspectVariable', or 'proposeFix'.
 If you choose 'inspectVariable', you MUST provide the variable name.
+If you choose 'proposeFix', you MUST provide the replacement line of code in 'fixSuggestion'.
 Provide a brief, one-sentence explanation for your choice.`,
+        // --- 变更结束 ---
         codeContextWindow: 5,
     });
 
@@ -167,7 +170,42 @@ ${JSON.stringify(currentStep.variables, null, 2)}
         }
     }, [state, simulationSteps, code, promptConfig, t, selectedModel]);
 
+
+    // --- 变更 (STAGE 1) ---
+    // 添加一个新的回调函数来处理“应用修复”
     const currentStep = state.isRunning ? simulationSteps[state.currentStepIndex] : null;
+
+    const handleApplyFix = useCallback((fix: string) => {
+        if (!currentStep) return;
+
+        const lineToFix = currentStep.line - 1; // currentStep.line 是 1-based
+
+        // 真实地修改代码状态
+        const newCode = code.split('\n').map((line, index) => {
+            if (index === lineToFix) {
+                // 尝试保留原始缩进
+                const originalIndentation = line.match(/^\s*/)?.[0] || '';
+                return originalIndentation + fix.trim();
+            }
+            return line;
+        }).join('\n');
+
+        setCode(newCode);
+
+        // 重要：修改代码后，旧的“模拟轨迹” (simulationSteps) 已失效
+        // 我们必须重置模拟器，并向用户显示一条消息。
+        setState(s => ({
+            ...initialState,
+            error: "代码已修改。请重置并重新开始模拟。"
+        }));
+        
+        // 清空旧的模拟步骤
+        setSimulationSteps([]);
+
+        console.log(`Applied fix: ${fix} to line ${currentStep.line}`);
+
+    }, [code, currentStep]);
+    // --- 变更结束 ---
 
     return (
         <div className="bg-gray-900 min-h-screen text-white p-4 sm:p-6 lg:p-8">
@@ -218,13 +256,17 @@ ${JSON.stringify(currentStep.variables, null, 2)}
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                    {/* --- 变更 (STAGE 1) --- */}
+                    {/* 将 handleApplyFix 传递给 AIAgentPanel */}
                     <AIAgentPanel
                         context={state.aiContext}
                         rawDapPayloads={state.rawDapPayloads}
                         response={state.aiResponse}
                         isLoading={state.isAwaitingAI || state.isGeneratingSimulation}
                         error={state.error}
+                        onApplyFix={handleApplyFix}
                     />
+                    {/* --- 变更结束 --- */}
                     <div className="space-y-6">
                         <PromptConfigPanel config={promptConfig} onConfigChange={setPromptConfig} />
                         <DapLogPanel log={state.dapLog} />

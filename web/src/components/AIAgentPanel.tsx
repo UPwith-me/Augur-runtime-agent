@@ -4,7 +4,10 @@ import type { AiResponse } from '../types';
 // Fix: Remove file extensions from imports to fix module resolution errors.
 import { useI18n } from '../lib/i18n';
 // Fix: Remove file extensions from imports to fix module resolution errors.
-import { SparklesIcon, ExclamationTriangleIcon, FilterIcon, ServerStackIcon } from './icons';
+// --- 变更 (STAGE 1) ---
+// 导入一个新的图标
+import { SparklesIcon, ExclamationTriangleIcon, FilterIcon, ServerStackIcon, WrenchScrewdriverIcon } from './icons';
+// --- 变更结束 ---
 
 interface AIAgentPanelProps {
     context: string;
@@ -12,6 +15,10 @@ interface AIAgentPanelProps {
     response: AiResponse | null;
     isLoading: boolean;
     error: string | null;
+    // --- 变更 (STAGE 1) ---
+    // 添加 onApplyFix 属性
+    onApplyFix: (fix: string) => void;
+    // --- 变更结束 ---
 }
 
 const LoadingSpinner: React.FC = () => {
@@ -26,18 +33,43 @@ const LoadingSpinner: React.FC = () => {
     );
 };
 
-export const AIAgentPanel: React.FC<AIAgentPanelProps> = ({ context, rawDapPayloads, response, isLoading, error }) => {
+export const AIAgentPanel: React.FC<AIAgentPanelProps> = ({ context, rawDapPayloads, response, isLoading, error, onApplyFix }) => {
     const { t } = useI18n();
 
     const renderResponse = () => {
         if (!response) return null;
 
+        // --- 变更 (STAGE 1) ---
+        // 添加一个分支来渲染“提议修复”
+        if (response.tool === 'proposeFix' && response.fixSuggestion) {
+            return (
+                <div className="w-full text-left space-y-3">
+                    <div className="font-mono bg-yellow-900/50 p-2 rounded text-yellow-300">
+                        <div className="flex items-center font-bold">
+                             <WrenchScrewdriverIcon className="w-4 h-4 mr-2 flex-shrink-0" />
+                            <span>AI 提议修复 (Propose Fix):</span>
+                        </div>
+                        <pre className="text-white text-xs pl-6 mt-1 whitespace-pre-wrap">{response.fixSuggestion}</pre>
+                    </div>
+                    <p className="text-gray-300 text-xs italic">"{response.explanation}"</p>
+                    <button
+                        onClick={() => onApplyFix(response.fixSuggestion!)}
+                        className="w-full px-4 py-2 text-sm font-semibold text-white bg-yellow-600 rounded-md shadow-md hover:bg-yellow-700 disabled:bg-gray-500 transition-colors"
+                    >
+                        应用修复 (Apply Fix)
+                    </button>
+                </div>
+            );
+        }
+        // --- 变更结束 ---
+
+        // 现有的工具渲染逻辑
         const toolText = response.tool === 'inspectVariable' && response.variableName
             ? t('ai.tool.inspectVariableDetail').replace('{variableName}', response.variableName)
             : t(`ai.tool.${response.tool as 'stepOver' | 'stepInto' | 'continue' | 'inspectVariable'}`) || response.tool;
 
         return (
-            <div className="w-full">
+            <div className="w-full text-left">
                 <div className="font-mono bg-indigo-900/50 p-2 rounded">
                     <span className="text-indigo-300 font-bold">{t('ai.toolCall')}</span>
                     <span className="text-white ml-2">{toolText}</span>
